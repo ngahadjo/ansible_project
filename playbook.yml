@@ -1,0 +1,124 @@
+---
+- hosts: localhost
+  gather_facts: yes
+  become: yes
+  roles:
+    - { role: docker, tags: docker }
+
+- hosts: localhost
+  gather_facts: yes
+  become: yes
+  roles:
+    - { role: kubernetes/master, tags: master }
+    - { role: cni, tags: cni }
+
+
+
+
+- hosts: localhost
+  gather_facts: yes
+  connection: local
+  become: yes
+  tasks:
+
+    - name: "update all install packages"
+      include_role:
+        name: kubeconfig-file
+      run_once: yes
+      tags: kubeconfig-file
+    
+    - name: "update all install packages"
+      include_role:
+        name: update 
+      run_once: yes
+      tags: kubeconfig-file
+
+    - name: "install packages"
+      include_role:
+        name: packages
+      run_once: yes
+      tags: packages
+
+    - name: "docker"
+      include_role:
+        name: docker
+      run_once: yes
+      tags: docker
+
+    - name: "docker-setup"
+      include_role:
+        name: docker-setup
+      run_once: yes
+      tags: docker-setup
+
+    - name: "Create .kube file if it does not exists"
+      include_role:
+        name: kube
+      run_once: yes
+      tags: kube
+
+    - name: "Move Kubernetes config file if it exists"
+      include_role:
+        name: move-config-file 
+      run_once: yes
+      tags: move-config-file
+
+    - name: "taint nodes"
+      include_role:
+        name: taint-nodes
+      run_once: yes
+      tags: taint-nodes
+
+    - name: "Helm role"
+      include_role:
+        name: helm
+      run_once: yes
+      tags: helm
+
+    - name: "MetalLB role"
+      include_role:
+       name: metallb
+      run_once: yes
+      tags: metallb
+
+    - name: "Gloo"
+      include_role:
+        name: gloo
+      run_once: yes
+      tags: gloo
+
+    - name: "Install ingress controller"
+      include_role:
+        name: ingress-controller
+      run_once: yes
+      tags: ingress-controller
+
+    - name: "docker"
+      include_role:
+        name: docker
+      run_once: yes
+      tags: docker 
+
+    - name: "Healthcheck role"
+      include_role:
+       name: healthcheck
+      run_once: yes
+      tags: healthcheck
+
+    - name: "load docker images"
+      include_role:
+       name: docker-images
+      run_once: yes
+      tags: docker-images
+
+    - name: "deploy helm chart"
+      include_role:
+       name: helm-charts
+      run_once: yes
+      tags: helm-charts
+
+    - name: "deploy helm chart"
+      include_role:
+       name: helm-charts1
+      run_once: yes
+      tags: helm-charts1

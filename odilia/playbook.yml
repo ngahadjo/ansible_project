@@ -1,0 +1,217 @@
+- hosts: localhost
+  become: yes
+  vars:
+    - new_user: ansible
+    - version: 20.04
+    - cluster: 1.19.2-00
+    - node_type: master
+    - layer: 0
+    - user: root
+
+
+  tasks:
+      - name: Update all packages to their latest version
+        apt:
+          name: "*"
+          state: latest
+
+      - name: Make the Swap inactive
+        command: swapoff -a
+
+      - name: Remove Swap entry from /etc/fstab.
+        lineinfile:
+          dest: /etc/fstab
+          regexp: swap
+          state: absent
+
+
+      - name: create a work directory
+        ansible.builtin.file:
+          path: ./workDir
+          state: directory
+          mode: '0777'
+
+      - name: Copy multiple files to multiple directories
+        copy: src={{ item.0 }} dest={{ item.1 }}
+        with_together:
+           - [ 'calico.yml', 'gloo_offline_values.yaml',   'helm.sh',  'k8s.sh' , 'metallb.yml' , 'metallb_namespace.yml' , 'metallb_configmap.yml' ]
+           - [ 'workDir/', 'workDir/', 'workDir/', 'workDir/', 'workDir/' , 'workDir/', 'workDir/' ]
+
+      - name: install on server - Docker
+        apt:
+          name: docker.io
+          state: present
+          update_cache: true
+
+      - name: kubeadm reset
+        command: "{{ item }}"
+        loop:
+            - kubeadm reset
+            - apt purge kubectl kubeadm kubelet kubernetes-cni -y
+            - apt autoremove
+
+      - name: delete directory kubernetes
+        file:
+           path: /etc/kubernetes/
+           state: absent
+
+
+      - name: delete directory .kube
+        file:
+         path: ~/.kube/
+         state: absent
+
+      - name:  delete directory etcd
+        file:
+          path: /var/lib/etcd
+          state: absent
+
+      - name:  delete directory cni
+        file:
+          path: /var/lib/cni/
+          state: absent
+
+
+      - name: Reload Daemonds
+        ansible.builtin.systemd:
+          daemon_reload: yes
+
+      - name: remove iptables and running docker containers
+        command: "{{ item }}"
+        loop:
+              - iptables -F && sudo iptables -t nat -F && iptables -t mangle -F && iptables -X
+              - docker rm -f $(docker ps -a | grep "k8s_" | awk '{print $1}')
+ 
+      - name: install on server - APT Transport HTTPS
+        apt:
+          name: apt-transport-https
+          state: present
+ 
+      - name: add Kubernetes apt-key
+        apt_key:
+          url: https://packages.cloud.google.com/apt/doc/apt-key.gpg
+          state: present
+
+      - name: Install NFS client
+        apt:
+          name: nfs-common
+          state: present
+ 
+      - name: add Kubernetes' APT repository
+        apt_repository:
+         repo: deb https://apt.kubernetes.io/ kubernetes-xenial main
+         state: present
+         filename: 'kubernetes'
+
+      - name: Update all packages to their latest version
+        apt:
+          name: "*"
+          state: latest
+ 
+      - name: install on server - kubelet
+        apt:
+          name: kubelet
+          state: present
+          update_cache: true
+       
+   
+      
+      - name: install on server - kubeadm
+        apt:
+          name: kubeadm
+          state: present
+          update_cache: true
+
+      - name: install on server - kubectl
+        apt:
+          name: kubectl
+          state: present
+          force: yes
+          update_cache: true
+
+       
+   
+      #- name: -mark hold packages 
+        #shell: apt-mark hold kubelet kubeadm kubectl
+
+      - name: init kubeadm
+        shell: kubeadm init --pod-network-cidr=10.244.0.0/16
+      
+
+      - name: Sleep for 300 seconds and continue with play
+        wait_for:
+           timeout: 120
+        delegate_to: localhost
+
+      - name: Create .kube file if it does not exists
+        file: 
+          path: $HOME/.kube
+          owner: root 
+          group: root
+          mode: 0755 
+          state: directory
+
+
+      - name: Move Kubernetes config file if it exists
+        ansible.builtin.copy:
+           src: /etc/kubernetes/admin.conf
+           dest: $HOME/.kube/config
+           owner: root
+           group: root
+           mode: '0644'
+           backup: yes
+
+     
+      - name: taint nodes
+        shell: kubectl taint nodes --all node-role.kubernetes.io/master-
+
+      - name: install FPod network
+        shell: kubectl apply -f https://raw.githubusercontent.com/coreos/flannel/master/Documentation/kube-flannel.yml 
+
+      - name: Sleep and continue with play
+        wait_for:
+           timeout: 120
+
+    
+
+      - name: Retrieve helm binary archive.
+        unarchive:
+            src: https://get.helm.sh/helm-v3.2.1-linux-amd64.tar.gz
+            dest: /tmp
+            creates: /usr/local/bin/helm
+            remote_src: yes
+
+      - name: Move helm binary into place.
+        command: cp /tmp/linux-amd64/helm  /usr/local/bin/helm
+        args:
+          creates: /usr/local/bin/helm
+
+
+      
+      - name: "Run {{ item }}"
+        command: "{{ item }}"
+        loop:
+           - kubectl create ns metallb-system
+           - kubectl get configmap kube-proxy -n kube-system -o yaml > kubePproxy.yml
+           #- kubectl get configmap kube-proxy -n kube-system -o yaml | sed -e "s/strictARP: false/strictARP: true/" | kubectl apply -f - -n kube-system
+           - sed -i '33s/false/true/' kubePproxy.yml
+           - kubectl apply -f kubePproxy.yml
+           - kubectl apply -f https://raw.githubusercontent.com/metallb/metallb/v0.9.6/manifests/namespace.yaml
+           - kubectl create secret generic -n metallb-system memberlist --from-literal=secretkey="$(openssl rand -base64 128)"
+           - kubectl create -f metallb_configmap.yml 
+           
+
+      - name: Sleep and continue with play
+        wait_for:
+           timeout: 120
+
+       
+      - name: "Run {{ item }}"
+        command: "{{ item }}"
+        loop: 
+          - kubectl -n metallb-system get all 
+     
+
+
+
+

@@ -1,0 +1,21 @@
+A=busybox
+B=centos
+C=mariadb
+D=mongo
+E=node
+F=postgres
+G=redis
+H=ubuntu
+I=mysql
+J=registry
+
+
+for a  in  $A  $B  $C  $D  $E  $F   $G    $H   $I $J
+do
+docker pull $a 
+done 
+
+for b  in  $A  $B  $C  $D  $E  $F   $G    $H   $I $J
+do
+docker  save $b > ${b}.tar  
+done 
